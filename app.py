@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error
 
 st.set_page_config(page_title="GPU Forecast System", layout="wide")
 
@@ -23,77 +23,57 @@ def load_data(path):
 
     df["month_index"] = df.groupby("GPU").cumcount()
 
-    for lag in [1,2,3]:
+    for lag in [1, 2, 3]:
         df[f"lag_{lag}"] = df.groupby("GPU")["Price"].shift(lag)
 
     df["rolling_mean_3"] = (
         df.groupby("GPU")["Price"]
-          .rolling(3).mean()
-          .reset_index(level=0, drop=True)
+        .rolling(3).mean()
+        .reset_index(level=0, drop=True)
     )
 
     df["rolling_std_3"] = (
         df.groupby("GPU")["Price"]
-          .rolling(3).std()
-          .reset_index(level=0, drop=True)
+        .rolling(3).std()
+        .reset_index(level=0, drop=True)
     )
 
     df = df.dropna().reset_index(drop=True)
 
     return df
 
+
 # =====================================================
-# TRAIN PER GPU (FAST VERSION)
+# TRAIN SINGLE GPU (LAZY TRAINING)
 # =====================================================
 @st.cache_resource
-def train_models(df):
-
-    models = {}
-    metrics = {}
+def train_single_gpu(df, gpu):
 
     features = [
         "month_index",
-        "lag_1","lag_2","lag_3",
-        "rolling_mean_3","rolling_std_3"
+        "lag_1", "lag_2", "lag_3",
+        "rolling_mean_3", "rolling_std_3"
     ]
 
-    for gpu in df["GPU"].unique():
+    df_gpu = df[df["GPU"] == gpu]
 
-        df_gpu = df[df["GPU"] == gpu]
+    X = df_gpu[features]
+    y = df_gpu["Price"]
 
-        # holdout split (เร็วกว่า TimeSeriesSplit มาก)
-        split = int(len(df_gpu) * 0.8)
+    model = xgb.XGBRegressor(
+        n_estimators=150,
+        max_depth=3,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        n_jobs=-1
+    )
 
-        train = df_gpu.iloc[:split]
-        test = df_gpu.iloc[split:]
+    model.fit(X, y)
 
-        X_train = train[features]
-        y_train = train["Price"]
+    return model, features
 
-        X_test = test[features]
-        y_test = test["Price"]
-
-        model = xgb.XGBRegressor(
-            n_estimators=250,      # ลดลงให้เร็วขึ้น
-            max_depth=3,
-            learning_rate=0.05,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            n_jobs=-1
-        )
-
-        model.fit(X_train, y_train)
-
-        preds = model.predict(X_test)
-
-        mae = mean_absolute_error(y_test, preds)
-        r2 = r2_score(y_test, preds)
-
-        models[gpu] = model
-        metrics[gpu] = {"mae": mae, "r2": r2}
-
-    return models, features, metrics
 
 # =====================================================
 # NAIVE BASELINE
@@ -104,8 +84,9 @@ def naive_baseline(df):
     df_sorted = df_sorted.dropna()
     return mean_absolute_error(df_sorted["Price"], df_sorted["Naive"])
 
+
 # =====================================================
-# FORECAST
+# FORECAST FUNCTION
 # =====================================================
 def forecast_gpu(model, df, features, gpu_name, months):
 
@@ -147,33 +128,21 @@ def forecast_gpu(model, df, features, gpu_name, months):
         "Predicted_Price": predictions
     })
 
+
 # =====================================================
 # UI
 # =====================================================
 st.title("🚀 GPU Price Forecast System")
 
 df = load_data("gpu_price_history.csv")
-models, features, metrics = train_models(df)
 
+st.subheader("📊 Baseline Performance")
 naive_mae = naive_baseline(df)
+st.metric("Naive MAE (Lag-1)", round(naive_mae, 2))
 
-# ===== PERFORMANCE =====
-st.subheader("📊 Model Performance")
+st.info("Model will train only when you run forecast (faster loading).")
 
-avg_mae = np.mean([m["mae"] for m in metrics.values()])
-avg_r2 = np.mean([m["r2"] for m in metrics.values()])
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Average MAE", round(avg_mae,2))
-col2.metric("Average R²", round(avg_r2,4))
-col3.metric("Naive MAE", round(naive_mae,2))
-
-if avg_mae < naive_mae:
-    st.success("Model Outperforms Naive ✅")
-else:
-    st.warning("Model Worse Than Naive ❌")
-
-# ===== FORECAST =====
+# ================= FORECAST =================
 st.subheader("🔮 Forecast")
 
 mode = st.radio("Mode", ["Single GPU", "All GPUs"])
@@ -186,27 +155,45 @@ if st.button("Run Forecast"):
 
     if mode == "Single GPU":
 
+        with st.spinner("Training model..."):
+            model, features = train_single_gpu(df, selected_gpu)
+
         result = forecast_gpu(
-            models[selected_gpu],
+            model,
             df,
             features,
             selected_gpu,
             months
         )
 
+        st.subheader("Forecast Result")
         st.dataframe(result)
         st.line_chart(result.set_index("Date")["Predicted_Price"])
 
     else:
 
         all_results = []
+        gpu_list = df["GPU"].unique()
+        progress = st.progress(0)
 
-        for gpu in df["GPU"].unique():
-            result = forecast_gpu(models[gpu], df, features, gpu, months)
+        for i, gpu in enumerate(gpu_list):
+
+            model, features = train_single_gpu(df, gpu)
+
+            result = forecast_gpu(
+                model,
+                df,
+                features,
+                gpu,
+                months
+            )
+
             all_results.append(result)
+            progress.progress((i + 1) / len(gpu_list))
 
         final_df = pd.concat(all_results)
 
+        st.subheader("All GPU Forecast Result")
         st.dataframe(final_df)
 
         pivot_df = final_df.pivot(index="Date", columns="GPU", values="Predicted_Price")
