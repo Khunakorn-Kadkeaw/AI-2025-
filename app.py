@@ -78,11 +78,25 @@ def train_single_gpu(df, gpu):
 # =====================================================
 # NAIVE BASELINE
 # =====================================================
-def naive_baseline(df):
-    df_sorted = df.sort_values(["GPU", "Date"])
-    df_sorted["Naive"] = df_sorted.groupby("GPU")["Price"].shift(1)
-    df_sorted = df_sorted.dropna()
-    return mean_absolute_error(df_sorted["Price"], df_sorted["Naive"])
+def naive_per_gpu(df):
+    results = []
+
+    for gpu in df["GPU"].unique():
+        df_gpu = df[df["GPU"] == gpu].sort_values("Date")
+        df_gpu["Naive"] = df_gpu["Price"].shift(1)
+        df_gpu = df_gpu.dropna()
+
+        mae = mean_absolute_error(df_gpu["Price"], df_gpu["Naive"])
+        avg_price = df_gpu["Price"].mean()
+        mae_percent = (mae / avg_price) * 100
+
+        results.append({
+            "GPU": gpu,
+            "MAE": round(mae, 2),
+            "MAE %": round(mae_percent, 2)
+        })
+
+    return pd.DataFrame(results)])
 
 
 # =====================================================
@@ -132,16 +146,9 @@ def forecast_gpu(model, df, features, gpu_name, months):
 # =====================================================
 # UI
 # =====================================================
-st.title("🚀 GPU Price Forecast System")
-
-df = load_data("gpu_price_history.csv")
-
-st.subheader("📊 Baseline Performance")
-naive_mae = naive_baseline(df)
-st.metric("Naive MAE (Lag-1)", round(naive_mae, 2))
-
-st.info("Model will train only when you run forecast (faster loading).")
-
+st.subheader("Naive Baseline Per GPU")
+naive_df = naive_per_gpu(df)
+st.dataframe(naive_df)
 # ================= FORECAST =================
 st.subheader("🔮 Forecast")
 
