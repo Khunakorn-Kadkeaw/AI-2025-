@@ -50,35 +50,37 @@ def load_and_prepare_data(path):
 # TRAIN MODEL
 # =====================================================
 @st.cache_resource
-def train_model(df):
+def train_models_per_gpu(df):
 
-    le = LabelEncoder()
-    df["GPU_Code"] = le.fit_transform(df["GPU"])
-
+    models = {}
     features = [
-        "GPU_Code",
         "month_index",
         "lag_1","lag_2","lag_3",
         "rolling_mean_3","rolling_std_3"
     ]
 
-    X = df[features]
-    y = df["Price"]
+    for gpu in df["GPU"].unique():
 
-    model = xgb.XGBRegressor(
-        n_estimators=600,
-        learning_rate=0.05,
-        max_depth=4,
-        subsample=0.7,
-        colsample_bytree=0.7,
-        reg_lambda=5,
-        reg_alpha=2,
-        random_state=42
-    )
+        df_gpu = df[df["GPU"] == gpu].copy()
 
-    model.fit(X, y)
+        X = df_gpu[features]
+        y = df_gpu["Price"]
 
-    return model, le, features
+        model = xgb.XGBRegressor(
+            n_estimators=300,
+            learning_rate=0.05,
+            max_depth=3,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_lambda=3,
+            reg_alpha=1,
+            random_state=42
+        )
+
+        model.fit(X, y)
+        models[gpu] = model
+
+    return models, features
 
 
 # =====================================================
