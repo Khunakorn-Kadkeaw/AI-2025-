@@ -96,7 +96,7 @@ def naive_per_gpu(df):
             "MAE %": round(mae_percent, 2)
         })
 
-    return pd.DataFrame(results)])
+    return pd.DataFrame(results)
 
 
 # =====================================================
