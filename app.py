@@ -2,18 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, r2_score
 
 st.set_page_config(page_title="GPU Forecast System", layout="wide")
 
 # =====================================================
-# LOAD & FEATURE ENGINEERING
+# LOAD DATA
 # =====================================================
 @st.cache_data
-def load_and_prepare_data(path):
-
+def load_data(path):
     df = pd.read_csv(path)
 
     df = df.rename(columns={
@@ -45,14 +42,15 @@ def load_and_prepare_data(path):
 
     return df
 
-
 # =====================================================
-# TRAIN MODEL
+# TRAIN PER GPU (FAST VERSION)
 # =====================================================
 @st.cache_resource
-def train_models_per_gpu(df):
+def train_models(df):
 
     models = {}
+    metrics = {}
+
     features = [
         "month_index",
         "lag_1","lag_2","lag_3",
@@ -61,92 +59,57 @@ def train_models_per_gpu(df):
 
     for gpu in df["GPU"].unique():
 
-        df_gpu = df[df["GPU"] == gpu].copy()
+        df_gpu = df[df["GPU"] == gpu]
 
-        X = df_gpu[features]
-        y = df_gpu["Price"]
+        # holdout split (เร็วกว่า TimeSeriesSplit มาก)
+        split = int(len(df_gpu) * 0.8)
+
+        train = df_gpu.iloc[:split]
+        test = df_gpu.iloc[split:]
+
+        X_train = train[features]
+        y_train = train["Price"]
+
+        X_test = test[features]
+        y_test = test["Price"]
 
         model = xgb.XGBRegressor(
-            n_estimators=300,
-            learning_rate=0.05,
+            n_estimators=250,      # ลดลงให้เร็วขึ้น
             max_depth=3,
+            learning_rate=0.05,
             subsample=0.8,
             colsample_bytree=0.8,
-            reg_lambda=3,
-            reg_alpha=1,
-            random_state=42
-        )
-
-        model.fit(X, y)
-        models[gpu] = model
-
-    return models, features
-
-
-# =====================================================
-# MODEL EVALUATION (TimeSeries CV)
-# =====================================================
-@st.cache_resource
-def evaluate_model(df, features):
-
-    le = LabelEncoder()
-    df["GPU_Code"] = le.fit_transform(df["GPU"])
-
-    X = df[features]
-    y = df["Price"]
-
-    tscv = TimeSeriesSplit(n_splits=5)
-
-    mae_list = []
-    rmse_list = []
-    r2_list = []
-
-    for train_idx, test_idx in tscv.split(X):
-
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-
-        model = xgb.XGBRegressor(
-            n_estimators=600,
-            learning_rate=0.05,
-            max_depth=4,
-            subsample=0.7,
-            colsample_bytree=0.7,
-            reg_lambda=5,
-            reg_alpha=2,
-            random_state=42
+            random_state=42,
+            n_jobs=-1
         )
 
         model.fit(X_train, y_train)
+
         preds = model.predict(X_test)
 
-        mae_list.append(mean_absolute_error(y_test, preds))
-        rmse_list.append(np.sqrt(mean_squared_error(y_test, preds)))
-        r2_list.append(r2_score(y_test, preds))
+        mae = mean_absolute_error(y_test, preds)
+        r2 = r2_score(y_test, preds)
 
-    return np.mean(mae_list), np.mean(rmse_list), np.mean(r2_list)
+        models[gpu] = model
+        metrics[gpu] = {"mae": mae, "r2": r2}
 
+    return models, features, metrics
 
 # =====================================================
 # NAIVE BASELINE
 # =====================================================
 def naive_baseline(df):
-
     df_sorted = df.sort_values(["GPU", "Date"])
-    df_sorted["Naive_Pred"] = df_sorted.groupby("GPU")["Price"].shift(1)
+    df_sorted["Naive"] = df_sorted.groupby("GPU")["Price"].shift(1)
     df_sorted = df_sorted.dropna()
-
-    return mean_absolute_error(df_sorted["Price"], df_sorted["Naive_Pred"])
-
+    return mean_absolute_error(df_sorted["Price"], df_sorted["Naive"])
 
 # =====================================================
-# FORECAST FUNCTION
+# FORECAST
 # =====================================================
-def forecast_gpu(model, df, le, features, gpu_name, months):
+def forecast_gpu(model, df, features, gpu_name, months):
 
     df_gpu = df[df["GPU"] == gpu_name].copy()
-    df_gpu["GPU_Code"] = le.transform(df_gpu["GPU"])
-
     df_future = df_gpu.copy()
     predictions = []
 
@@ -172,55 +135,49 @@ def forecast_gpu(model, df, le, features, gpu_name, months):
 
         df_future = pd.concat([df_future, new_row], ignore_index=True)
 
-    last_date = df_gpu["Date"].max()
-
     future_dates = pd.date_range(
-        start=last_date + pd.DateOffset(months=1),
+        start=df_gpu["Date"].max() + pd.DateOffset(months=1),
         periods=months,
         freq="MS"
     )
 
-    forecast_df = pd.DataFrame({
+    return pd.DataFrame({
         "GPU": gpu_name,
         "Date": future_dates,
         "Predicted_Price": predictions
     })
 
-    return forecast_df
-
-
 # =====================================================
-# STREAMLIT UI
+# UI
 # =====================================================
 st.title("🚀 GPU Price Forecast System")
 
-df = load_and_prepare_data("gpu_price_history.csv")
-model, le, features = train_model(df)
+df = load_data("gpu_price_history.csv")
+models, features, metrics = train_models(df)
 
-mae, rmse, r2 = evaluate_model(df.copy(), features)
-naive_mae = naive_baseline(df.copy())
+naive_mae = naive_baseline(df)
 
-# ================= PERFORMANCE =================
+# ===== PERFORMANCE =====
 st.subheader("📊 Model Performance")
 
-col1, col2, col3, col4 = st.columns(4)
+avg_mae = np.mean([m["mae"] for m in metrics.values()])
+avg_r2 = np.mean([m["r2"] for m in metrics.values()])
 
-col1.metric("MAE", round(mae,2))
-col2.metric("RMSE", round(rmse,2))
-col3.metric("R²", round(r2,4))
-col4.metric("Naive MAE", round(naive_mae,2))
+col1, col2, col3 = st.columns(3)
+col1.metric("Average MAE", round(avg_mae,2))
+col2.metric("Average R²", round(avg_r2,4))
+col3.metric("Naive MAE", round(naive_mae,2))
 
-if mae < naive_mae:
-    st.success("Model Outperforms Naive Baseline ✅")
+if avg_mae < naive_mae:
+    st.success("Model Outperforms Naive ✅")
 else:
     st.warning("Model Worse Than Naive ❌")
 
-# ================= FORECAST =================
+# ===== FORECAST =====
 st.subheader("🔮 Forecast")
 
-mode = st.radio("Forecast Mode", ["Single GPU", "All GPUs"])
-
-months = st.slider("Forecast Months", 1, 36, 12)
+mode = st.radio("Mode", ["Single GPU", "All GPUs"])
+months = st.slider("Forecast Months", 1, 24, 12)
 
 if mode == "Single GPU":
     selected_gpu = st.selectbox("Select GPU", df["GPU"].unique())
@@ -229,50 +186,28 @@ if st.button("Run Forecast"):
 
     if mode == "Single GPU":
 
-        result = forecast_gpu(model, df, le, features, selected_gpu, months)
+        result = forecast_gpu(
+            models[selected_gpu],
+            df,
+            features,
+            selected_gpu,
+            months
+        )
 
-        st.subheader("Forecast Result")
         st.dataframe(result)
-
-        # Historical Fit
-        df_gpu = df[df["GPU"] == selected_gpu].copy()
-        df_gpu["GPU_Code"] = le.transform(df_gpu["GPU"])
-        df_gpu["Model_Pred"] = model.predict(df_gpu[features])
-
-        chart_df = df_gpu[["Date","Price","Model_Pred"]].set_index("Date")
-        st.line_chart(chart_df)
-
-        st.subheader("Forecast Chart")
         st.line_chart(result.set_index("Date")["Predicted_Price"])
 
-
-    else:  # ALL GPUs
+    else:
 
         all_results = []
 
-        progress_bar = st.progress(0)
-        gpu_list = df["GPU"].unique()
-
-        for i, gpu in enumerate(gpu_list):
-            result = forecast_gpu(model, df, le, features, gpu, months)
+        for gpu in df["GPU"].unique():
+            result = forecast_gpu(models[gpu], df, features, gpu, months)
             all_results.append(result)
 
-            progress_bar.progress((i + 1) / len(gpu_list))
+        final_df = pd.concat(all_results)
 
-        final_df = pd.concat(all_results).reset_index(drop=True)
-
-        st.subheader("All GPU Forecast Result")
         st.dataframe(final_df)
 
-        # Pivot for chart
         pivot_df = final_df.pivot(index="Date", columns="GPU", values="Predicted_Price")
         st.line_chart(pivot_df)
-
-        # Download CSV
-        csv = final_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "📥 Download Forecast CSV",
-            csv,
-            "gpu_forecast.csv",
-            "text/csv"
-        )
