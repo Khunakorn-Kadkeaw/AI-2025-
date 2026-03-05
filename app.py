@@ -9,6 +9,9 @@ st.set_page_config(page_title="GPU Forecast System", layout="wide")
 # =====================================================
 # LOAD DATA
 # =====================================================
+# =====================================================
+# LOAD DATA
+# =====================================================
 @st.cache_data
 def load_data(path):
     df = pd.read_csv(path)
@@ -42,6 +45,9 @@ def load_data(path):
 
     return df
 
+
+# ⭐ เพิ่มบรรทัดนี้
+df = load_data("gpu_price_history.csv")
 
 # =====================================================
 # TRAIN SINGLE GPU (LAZY TRAINING)
