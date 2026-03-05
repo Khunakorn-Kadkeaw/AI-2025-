@@ -10,7 +10,7 @@ st.set_page_config(page_title="GPU Price Forecast AI", layout="wide")
 
 @st.cache_data
 def load_data():
-    forecast = pd.read_csv("gpu_forecast.csv")
+    forecast = pd.read_csv("gpu_forecast (1).csv")
     data_count = pd.read_csv("gpu_data_count.csv")
     accuracy = pd.read_csv("gpu_accuracy.csv")
 
