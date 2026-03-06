@@ -60,7 +60,7 @@ cd gpu-price-forecast
 
 2. ติดตั้ง Library pip install -r requirements.txt
 
-3. Run Application streamlit run app.py
+3. Run Application streamlit https://9gsfxvkxyhqutyo3z6vpvx.streamlit.app
 
 
 อ้างอิง ข้อมูล:https://www.kaggle.com/datasets
