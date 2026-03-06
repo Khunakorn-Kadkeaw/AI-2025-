@@ -1,6 +1,32 @@
-# AI Project 2025
+GPU Price Forecast AI
 
-## รายวิชา AI
+แอปพลิเคชันนี้เป็นระบบ พยากรณ์ราคา GPU ในอนาคต โดยใช้เทคนิค AI Time Series Forecasting เพื่อช่วยวิเคราะห์แนวโน้มราคาการ์ดจอในอนาคต
+
+ระบบถูกพัฒนาเป็น Web Application ด้วย Streamlit ทำให้ผู้ใช้สามารถเลือก GPU รุ่นที่ต้องการ และดูกราฟการคาดการณ์ราคาในอนาคตได้
+
+กลุ่มเป้าหมาย
+	•	ผู้ที่ต้องการซื้อการ์ดจอ
+	•	นักวิเคราะห์ตลาดฮาร์ดแวร์
+	•	ผู้ที่สนใจแนวโน้มราคาการ์ดจอ
+
+ปัญหาที่ระบบช่วยแก้
+	•	ไม่รู้ว่าราคา GPU จะขึ้นหรือลงในอนาคต
+	•	ต้องการข้อมูลช่วยตัดสินใจซื้อ
+
+⸻
+
+🚀 ฟีเจอร์หลัก (Features)
+	•	📊 GPU Price Forecast
+ทำนายราคาการ์ดจอในอนาคตด้วยโมเดล AI
+	•	📈 Interactive Graph
+แสดงกราฟแนวโน้มราคาของ GPU แต่ละรุ่น
+	•	📋 Model Accuracy
+แสดงค่าประสิทธิภาพของโมเดล เช่น MAE และ MAPE
+	•	🖥 GPU Data Overview
+แสดงจำนวนข้อมูลของ GPU แต่ละรุ่นที่ใช้ในการฝึกโมเดล
+
+
+
 
 ## แผนการดำเนินโครงงาน
 ตารางที่ 1 แสดงแผนการดำเนินโครงงาน ระหว่างเดือน ธันวาคม 256X ถึง กุมภาพันธ์ 256X
@@ -11,6 +37,31 @@
 | 2 |            |   |  |  |   |   |   |   |   |   |    |    |    |
 | 3 |            |   |   |   |   |  |   |   |   |   |    |    |    |
 | 4 | เขียนรายงานสรุป |   |   |   |   |   |   |   |   |   |    |   |    |
+
+เทคโนโลยีที่ใช้ (Tech Stack)
+
+Language
+	•	Python
+
+Framework
+	•	Streamlit
+
+Libraries
+	•	Pandas
+	•	NumPy
+	•	Prophet
+	•	Matplotlib
+	•	Scikit-learn
+
+📦 การติดตั้งและการใช้งาน (Setup & Installation)
+
+1. Clone Repository git clone https://github.com/your-repository/gpu-price-forecast.git
+cd gpu-price-forecast
+
+2. ติดตั้ง Library pip install -r requirements.txt
+
+3. Run Application streamlit run app.py
+
 
 อ้างอิง ข้อมูล:https://www.kaggle.com/datasets
       Source Code : ChatGPT
